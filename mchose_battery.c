@@ -15,7 +15,7 @@
 #define DRIVER_NAME "mchose-battery"
 
 /// How often to poll the device
-#define POLL_INTERVAL_MS (15 * 1000)
+#define POLL_INTERVAL_MS (30 * 1000)
 /// 2s seem to be always working
 #define RESPONSE_TIMEOUT_MS 2000
 
