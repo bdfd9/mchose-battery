@@ -163,7 +163,7 @@ static enum power_supply_property mbat_ps_props[] = {
 int mbat_query_battery(mouse_battery_data_t* data) {
     struct hid_device* const hdev = data->hdev;
 
-    unsigned char* buffer = kzalloc(REPORT_SIZE, GFP_KERNEL);
+    unsigned char* const buffer = kzalloc(REPORT_SIZE, GFP_KERNEL);
     if (!buffer) {
         return -ENOMEM;
     }
@@ -329,7 +329,7 @@ out:
 }
 
 static void mbat_poll_work(struct work_struct* work) {
-    mouse_battery_data_t* data //
+    mouse_battery_data_t* const data //
         = container_of(work, mouse_battery_data_t, poll_work.work);
     int ret = -1;
 
@@ -407,7 +407,7 @@ static int mbat_probe_battery(struct hid_device* hdev) {
         goto err_power;
     }
 
-    mouse_battery_data_t* data //
+    mouse_battery_data_t* const data //
         = devm_kzalloc(&hdev->dev, sizeof(mouse_battery_data_t), GFP_KERNEL);
     if (!data) {
         ret = -ENOMEM;
@@ -450,7 +450,7 @@ err_power:
 }
 
 /// Seems to be working on `input2`
-static bool mbat_is_battery_iface(struct hid_device* hdev) {
+static bool mbat_is_battery_iface(struct hid_device* const hdev) {
     return strstr(hdev->phys, "input2") != NULL;
 }
 
@@ -486,7 +486,7 @@ static int mbat_probe(struct hid_device* hdev, const struct hid_device_id* id) {
 }
 
 static void mbat_remove(struct hid_device* hdev) {
-    struct mouse_battery_data* data = hid_get_drvdata(hdev);
+    struct mouse_battery_data* const data = hid_get_drvdata(hdev);
 
     if (data != NULL) {
         cancel_delayed_work_sync(&data->poll_work);
