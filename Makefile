@@ -1,5 +1,5 @@
 # Kernel module Makefile
-obj-m += mouse_battery.o
+obj-m += mchose_battery.o
 
 PWD := $(CURDIR)
 KDIR ?= /lib/modules/$(shell uname -r)/build
@@ -9,7 +9,7 @@ MODULE_DEST ?= /lib/modules/$(KERNEL_VER)/kernel/drivers/hid
 UDEV_RULES_DIR ?= /etc/udev/rules.d
 UDEV_RULE := rules.d/50-mchose-battery.rules
 
-MODULE_KO := mchose-battery.ko
+MODULE_KO := mchose_battery.ko
 
 # Pass extra CFLAGS for debug builds:
 #   make DEBUG=1
@@ -24,7 +24,7 @@ clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 
 install: all
-	install -Dm 644 $(MODULE_KO) $(DESTDIR)$(MODULE_DEST)/mchose-battery.ko
+	install -Dm 644 $(MODULE_KO) $(DESTDIR)$(MODULE_DEST)/mchose_battery.ko
 	install -Dm 644 $(UDEV_RULE) $(DESTDIR)$(UDEV_RULES_DIR)/50-mchose-battery.rules
 	depmod -a $(KERNEL_REL)
 	-udevadm control --reload-rules 2>/dev/null
@@ -33,7 +33,7 @@ install: all
 	@echo "  modprobe mchose-battery"
 
 uninstall:
-	rm -f $(DESTDIR)$(MODULE_DEST)/mchose-battery.ko
+	rm -f $(DESTDIR)$(MODULE_DEST)/mchose_battery.ko
 	rm -f $(DESTDIR)$(UDEV_RULES_DIR)/50-mchose-battery.rules
 	depmod -a $(KERNEL_REL) 2>/dev/null || true
 	-udevadm control --reload-rules 2>/dev/null
