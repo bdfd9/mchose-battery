@@ -43,7 +43,7 @@ typedef struct mouse_battery_data {
     bool is_charging;
 } mouse_battery_data_t;
 
-int mbat_query_battery(mouse_battery_data_t* data);
+static int mbat_query_battery(mouse_battery_data_t* const data);
 
 /*******************************************************************************/
 /* power_supply interface                                                      */
@@ -58,9 +58,9 @@ int mbat_query_battery(mouse_battery_data_t* data);
  * e.g.  echo 1 | sudo tee /sys/class/power_supply/{NAME}/refresh
  */
 static ssize_t refresh_store(
-    struct device* dev, //
-    struct device_attribute* attr,
-    const char* buf,
+    struct device* const dev, //
+    struct device_attribute* const attr,
+    const char* const buf,
     size_t count
 ) {
     struct power_supply* const psy = dev_get_drvdata(dev);
@@ -92,9 +92,9 @@ static const struct attribute_group* mbat_attr_groups[] = {
 };
 
 static int mbat_ps_get_property(
-    struct power_supply* psy,
+    struct power_supply* const psy,
     enum power_supply_property psp,
-    union power_supply_propval* val
+    union power_supply_propval* const val
 ) {
     mouse_battery_data_t* const data = power_supply_get_drvdata(psy);
     int ret = 0;
@@ -162,7 +162,7 @@ static enum power_supply_property mbat_ps_props[] = {
 /* Pooling                                                                     */
 /*******************************************************************************/
 
-int mbat_query_battery(mouse_battery_data_t* data) {
+static int mbat_query_battery(mouse_battery_data_t* const data) {
     struct hid_device* const hdev = data->hdev;
 
     unsigned char* const buffer = kzalloc(REPORT_SIZE, GFP_KERNEL);
@@ -330,9 +330,9 @@ out:
     return ret;
 }
 
-static void mbat_poll_work(struct work_struct* work) {
+static void mbat_poll_work(struct work_struct* const work) {
     mouse_battery_data_t* const data //
-        = container_of(work, mouse_battery_data_t, poll_work.work);
+        = container_of_const(work, mouse_battery_data_t, poll_work.work);
     int ret = -1;
 
     ret = mbat_query_battery(data);
@@ -369,8 +369,8 @@ static void sanitize_name(char* const s) {
 }
 
 static int mbat_register_power_supply(
-    struct hid_device* hdev, //
-    mouse_battery_data_t* data
+    struct hid_device* const hdev, //
+    mouse_battery_data_t* const data
 ) {
     struct power_supply_config psy_cfg = {};
     psy_cfg.drv_data = data;
@@ -394,7 +394,7 @@ static int mbat_register_power_supply(
     return 0;
 }
 
-static int mbat_probe_battery(struct hid_device* hdev) {
+static int mbat_probe_battery(struct hid_device* const hdev) {
     int ret = -1;
 
     ret = hid_hw_power(hdev, PM_HINT_FULLON);
@@ -456,7 +456,10 @@ static bool mbat_is_battery_iface(struct hid_device* const hdev) {
     return strstr(hdev->phys, "input2") != NULL;
 }
 
-static int mbat_probe(struct hid_device* hdev, const struct hid_device_id* id) {
+static int mbat_probe(
+    struct hid_device* const hdev, //
+    const struct hid_device_id* const id
+) {
     int ret = -1;
 
     ret = hid_parse(hdev);
@@ -487,7 +490,7 @@ static int mbat_probe(struct hid_device* hdev, const struct hid_device_id* id) {
     return 0;
 }
 
-static void mbat_remove(struct hid_device* hdev) {
+static void mbat_remove(struct hid_device* const hdev) {
     struct mouse_battery_data* const data = hid_get_drvdata(hdev);
 
     if (data != NULL) {
