@@ -1,0 +1,8 @@
+# UPower detects the mouse as a keyboard. Give it a hint.
+
+ACTION=="remove", GOTO="mchose-battery"
+
+SUBSYSTEM=="input", ATTRS{idVendor}=="3837", ATTRS{idProduct}=="100b", ENV{ID_INPUT_MOUSE}="1"
+SUBSYSTEM=="input", ATTRS{idVendor}=="5253", ATTRS{idProduct}=="1020", ENV{ID_INPUT_MOUSE}="1"
+
+LABEL="mchose-battery"

@@ -12,9 +12,10 @@
 
 #define DRIVER_NAME "mchose-battery"
 
-/* How often to poll the device */
-#define POLL_INTERVAL_MS 15000   /* 15 seconds */
-#define RESPONSE_TIMEOUT_MS 2000 /* 2  seconds */
+/// How often to poll the device
+#define POLL_INTERVAL_MS (15 * 1000)
+/// 2s seem to be always working
+#define RESPONSE_TIMEOUT_MS 2000
 
 #define REPORT_SIZE 21
 #define REPORT_ID 0x11
@@ -29,7 +30,7 @@ typedef struct mouse_battery_data {
 
     struct power_supply* battery;
     struct power_supply_desc battery_desc;
-    char name[255];
+    char battery_name[255];
 
     struct delayed_work poll_work;
 
@@ -37,20 +38,65 @@ typedef struct mouse_battery_data {
 
     int ps_status;
     u8 battery_level;
-    bool is_charging; /* charging status */
+    bool is_charging;
 } mouse_battery_data_t;
+
+int mbat_query_battery(mouse_battery_data_t* data);
 
 /*******************************************************************************/
 /* power_supply interface                                                      */
 /*******************************************************************************/
+
+/*******************************************************************************/
+/* Sysfs                                                                       */
+/*******************************************************************************/
+
+/*
+ * Writing anything to this file triggers an immediate battery query.
+ * e.g.  echo 1 | sudo tee /sys/class/power_supply/{NAME}/refresh
+ */
+static ssize_t refresh_store(
+    struct device* dev, //
+    struct device_attribute* attr,
+    const char* buf,
+    size_t count
+) {
+    struct power_supply* const psy = dev_get_drvdata(dev);
+    mouse_battery_data_t* const data = power_supply_get_drvdata(psy);
+
+    hid_info(data->hdev, "refreshing `%s`\n", data->hdev->name);
+
+    const int ret = mbat_query_battery(data);
+    if (ret) {
+        return ret;
+    }
+
+    power_supply_changed(data->battery);
+
+    return count;
+}
+static DEVICE_ATTR_WO(refresh);
+
+static struct attribute* mbat_attrs[] = {
+    &dev_attr_refresh.attr,
+    NULL,
+};
+static const struct attribute_group mbat_attr_group = {
+    .attrs = mbat_attrs,
+};
+static const struct attribute_group* mbat_attr_groups[] = {
+    &mbat_attr_group,
+    NULL,
+};
 
 static int mbat_ps_get_property(
     struct power_supply* psy,
     enum power_supply_property psp,
     union power_supply_propval* val
 ) {
-    struct mouse_battery_data* data = power_supply_get_drvdata(psy);
+    mouse_battery_data_t* const data = power_supply_get_drvdata(psy);
     int ret = 0;
+
     unsigned long flags = 0;
     spin_lock_irqsave(&data->lock, flags);
 
@@ -87,6 +133,10 @@ static int mbat_ps_get_property(
             val->strval = "MCHOSE";
             break;
         }
+        case POWER_SUPPLY_PROP_SERIAL_NUMBER: {
+            val->strval = data->hdev->uniq;
+            break;
+        }
         default:
             ret = -EINVAL;
             break;
@@ -103,15 +153,7 @@ static enum power_supply_property mbat_ps_props[] = {
     POWER_SUPPLY_PROP_SCOPE,          //
     POWER_SUPPLY_PROP_MODEL_NAME,     //
     POWER_SUPPLY_PROP_MANUFACTURER,   //
-};
-
-static const struct power_supply_desc mbat_main_desc = {
-    .name = "mchose",
-    .type = POWER_SUPPLY_TYPE_BATTERY,
-    .properties = mbat_ps_props,
-    .num_properties = ARRAY_SIZE(mbat_ps_props),
-    .get_property = mbat_ps_get_property,
-    .no_thermal = true,
+    POWER_SUPPLY_PROP_SERIAL_NUMBER,  //
 };
 
 /*******************************************************************************/
@@ -119,18 +161,19 @@ static const struct power_supply_desc mbat_main_desc = {
 /*******************************************************************************/
 
 int mbat_query_battery(mouse_battery_data_t* data) {
-    struct hid_device* hdev = data->hdev;
+    struct hid_device* const hdev = data->hdev;
 
     unsigned char* buffer = kzalloc(REPORT_SIZE, GFP_KERNEL);
-    if (!buffer)
+    if (!buffer) {
         return -ENOMEM;
+    }
     memset(buffer, 0x0, REPORT_SIZE);
 
     // Step 1: Trigger a refresh
     buffer[0] = REPORT_ID;
     buffer[1] = REQUEST_REFRESH_CMD;
 
-    //
+    // #NOTE: They are using XOR as an obfuscation method.
     for (int i = 1; i < REPORT_SIZE; ++i) {
         buffer[i] ^= 0xff;
     }
@@ -171,11 +214,13 @@ int mbat_query_battery(mouse_battery_data_t* data) {
     }
 
     // Step 4: extract values
+    //
+    // #NOTE: They are using XOR as an obfuscation method.
     for (int i = 1; i < REPORT_SIZE; ++i) {
         buffer[i] ^= 0xff;
     }
 
-    unsigned char* payload = buffer + 2;
+    unsigned char* const payload = buffer + 2;
 
     size_t offset = 0;
     uint16_t vid;
@@ -203,37 +248,77 @@ int mbat_query_battery(mouse_battery_data_t* data) {
     charge_status = *(payload + offset);
     offset += 1;
 
-    const uint8_t connect_mode = flags & 0x7;
+    // #NOTE: These are correct and have been left as documentation.
+    // const uint8_t connect_mode = flags & 0x7;
+    // const uint8_t in_reserved = (flags >> 4) & 0xf;
     const uint8_t connect_status = (flags >> 3) & 0x1;
-
-    battery_level = clamp_val(battery_level, 0, 100);
-
-    int ps_status;
-    if (battery_level == 100) {
-        ps_status = POWER_SUPPLY_STATUS_FULL;
-    } else if (charge_status == 1) {
-        ps_status = POWER_SUPPLY_STATUS_CHARGING;
-    } else {
-        ps_status = POWER_SUPPLY_STATUS_DISCHARGING;
-    }
 
     unsigned long lock_flags;
     spin_lock_irqsave(&data->lock, lock_flags);
 
-    data->ps_status = ps_status;
-    data->battery_level = battery_level;
-    data->is_charging = charge_status;
+    if (connect_status == 1 && (battery_level <= 100)) {
+        // The mouse is connected.
+        // {'command': 6, 'vid': 14391, 'pid': 16409, 'fwVersion': 67251205, 'connectMode': 1, 'connectStatus': 1, 'inReserved': 0, 'batteryLevel': 47, 'chargeStatus': 0}
+        int ps_status = POWER_SUPPLY_STATUS_UNKNOWN;
+        if (battery_level == 100) {
+            // If the battery is fully charged (i.e. 100%),
+            // we can consider it full, even if the device
+            // is still reporting that it is in 'charge' mode.
+            ps_status = POWER_SUPPLY_STATUS_FULL;
+        } else if (charge_status == 1) {
+            ps_status = POWER_SUPPLY_STATUS_CHARGING;
+        } else {
+            ps_status = POWER_SUPPLY_STATUS_DISCHARGING;
+        }
+
+        data->ps_status = ps_status;
+        data->battery_level = battery_level;
+        data->is_charging = charge_status;
+    } else {
+        if (battery_level > 100) {
+            hid_warn(
+                data->hdev, //
+                "[%s]: battery_level should be <= 100 (is %d)\n",
+                data->hdev->name,
+                battery_level
+            );
+        }
+
+        // Here the mouse can be:
+        // - powered off
+        // - sleeping after inactivity
+        // - waking up from the sleep
+        //
+        // The values seem to be all over the place.
+        // Everything can be set to 0 when the mouse is powered off.
+        // The connect mode can be set to 6 when waking up or 7 when powered off.
+        //
+        // 1. Powered off
+        // - {'command': 6, 'vid': 0, 'pid': 0, 'fwVersion': 0, 'connectMode': 0, 'connectStatus': 0, 'inReserved': 0, 'batteryLevel': 0, 'chargeStatus': 0}
+        // - {'command': 249, 'vid': 65535, 'pid': 65535, 'fwVersion': 4294967295, 'connectMode': 7, 'connectStatus': 1, 'inReserved': 15, 'batteryLevel': 255, 'chargeStatus': 255}
+        // 2. Sleeping
+        // - {'command': 249, 'vid': 51144, 'pid': 49126, 'fwVersion': 4227716090, 'connectMode': 6, 'connectStatus': 0, 'inReserved': 15, 'batteryLevel': 207, 'chargeStatus': 255}
+        //
+        // Therefore, do not update anything and set the power state to 'unknown'.
+        hid_info(
+            data->hdev, //
+            "[%s]: the mouse is either powered off or in sleep mode...\n",
+            data->hdev->name
+        );
+
+        data->ps_status = POWER_SUPPLY_STATUS_UNKNOWN;
+    }
 
     spin_unlock_irqrestore(&data->lock, lock_flags);
 
     hid_info(
         data->hdev,
         "battery: %d%% [%s]\n",
-        battery_level,
-        (ps_status == POWER_SUPPLY_STATUS_CHARGING)      ? "charging"
-        : (ps_status == POWER_SUPPLY_STATUS_FULL)        ? "full"
-        : (ps_status == POWER_SUPPLY_STATUS_DISCHARGING) ? "discharging"
-                                                         : "unknown"
+        data->battery_level,
+        (data->ps_status == POWER_SUPPLY_STATUS_CHARGING)      ? "charging"
+        : (data->ps_status == POWER_SUPPLY_STATUS_FULL)        ? "full"
+        : (data->ps_status == POWER_SUPPLY_STATUS_DISCHARGING) ? "discharging"
+                                                               : "unknown"
     );
 
     ret = 0;
@@ -246,15 +331,14 @@ out:
 static void mbat_poll_work(struct work_struct* work) {
     mouse_battery_data_t* data //
         = container_of(work, mouse_battery_data_t, poll_work.work);
-    int ret;
+    int ret = -1;
 
     ret = mbat_query_battery(data);
     if (ret) {
         hid_warn(data->hdev, "battery read failed: %d\n", ret);
     }
 
-    // Notify UPower / kernel regardless of success so that a device
-    // going offline (present -> 0) is propagated.
+    // Notify UPower / kernel regardless of success.
     power_supply_changed(data->battery);
 
     if (ret) {
@@ -268,15 +352,30 @@ static void mbat_poll_work(struct work_struct* work) {
 /* probe & remove                                                              */
 /*******************************************************************************/
 
+static void sanitize_name(char* const s) {
+    for (size_t i = 0; s[i] != '\0'; i++) {
+        const char c = s[i];
+
+        if (isupper(c)) {
+            s[i] = tolower(c);
+        }
+
+        if (!(isalnum(c) || (c == '-') || (c == '_'))) {
+            s[i] = '-';
+        }
+    }
+}
+
 static int mbat_register_power_supply(
     struct hid_device* hdev, //
     mouse_battery_data_t* data
 ) {
     struct power_supply_config psy_cfg = {};
     psy_cfg.drv_data = data;
+    psy_cfg.attr_grp = mbat_attr_groups;
 
     data->battery_desc = (struct power_supply_desc) {
-        .name = "mchose",
+        .name = data->battery_name,
         .type = POWER_SUPPLY_TYPE_BATTERY,
         .properties = mbat_ps_props,
         .num_properties = ARRAY_SIZE(mbat_ps_props),
@@ -286,7 +385,7 @@ static int mbat_register_power_supply(
     data->battery = devm_power_supply_register(&hdev->dev, &data->battery_desc, &psy_cfg);
     if (IS_ERR(data->battery)) {
         int ret = PTR_ERR(data->battery);
-        hid_err(hdev, "power_supply_register failed: %d\n", ret);
+        hid_err(hdev, "devm_power_supply_register failed: %d\n", ret);
         return ret;
     }
 
@@ -315,21 +414,32 @@ static int mbat_probe_battery(struct hid_device* hdev) {
         goto err_close;
     }
 
+    // #NOTE: mchose hardcoded serial numbers to 0123456789, so it won't be fully unique...
+    memset(data->battery_name, 0x0, sizeof(data->battery_name));
+    snprintf(
+        data->battery_name, //
+        sizeof(data->battery_name),
+        "%s-%s",
+        hdev->name,
+        hdev->uniq
+    );
+    sanitize_name(data->battery_name);
+
     data->hdev = hdev;
     data->is_charging = false;
     data->ps_status = POWER_SUPPLY_STATUS_UNKNOWN;
-    data->battery_level = 255;
+    data->battery_level = 0;
 
     ret = mbat_register_power_supply(hdev, data);
     if (ret) {
         goto err_close;
     }
 
-    INIT_DELAYED_WORK(&data->poll_work, mbat_poll_work);
     hid_set_drvdata(hdev, data);
-    schedule_delayed_work(&data->poll_work, 0);
+    INIT_DELAYED_WORK(&data->poll_work, mbat_poll_work);
+    schedule_delayed_work(&data->poll_work, msecs_to_jiffies(2000));
 
-    hid_info(hdev, "mouse_battery: registered (poll every %u ms)\n", POLL_INTERVAL_MS);
+    hid_info(hdev, "registered: `%s` (poll every %u ms)\n", hdev->name, POLL_INTERVAL_MS);
     return 0;
 
 err_close:
@@ -342,20 +452,6 @@ err_power:
 /// Seems to be working on `input2`
 static bool mbat_is_battery_iface(struct hid_device* hdev) {
     return strstr(hdev->phys, "input2") != NULL;
-}
-
-static void sanitize_name(char* s) {
-    for (size_t i = 0; s[i] != '\0'; i++) {
-        char c = s[i];
-
-        if (isupper(c)) {
-            c = tolower(c);
-        }
-
-        if (!(isalpha(c) || (c == '-') || (c == '_'))) {
-            s[i] = '-';
-        }
-    }
 }
 
 static int mbat_probe(struct hid_device* hdev, const struct hid_device_id* id) {
@@ -380,11 +476,6 @@ static int mbat_probe(struct hid_device* hdev, const struct hid_device_id* id) {
 
     dev_info(&hdev->dev, "uniq: %s\n", hdev->uniq);
 
-    char name[255];
-    memset(name, 0, 255);
-    snprintf(name, sizeof(name), "%s-%s", hdev->name, hdev->uniq);
-    hid_info(hdev, "BATTERY_NAME_TEST: %s", name);
-
     ret = mbat_probe_battery(hdev);
     if (ret) {
         hid_hw_stop(hdev);
@@ -405,7 +496,7 @@ static void mbat_remove(struct hid_device* hdev) {
     }
 
     hid_hw_stop(hdev);
-    hid_info(hdev, "mouse_battery: removed\n");
+    hid_info(hdev, "removed: %s\n", hdev->name);
 }
 
 /*******************************************************************************/
@@ -413,7 +504,10 @@ static void mbat_remove(struct hid_device* hdev) {
 /*******************************************************************************/
 
 static const struct hid_device_id mbat_devices[] = {
+    // A7 V2 Ultra, dongle
     { HID_USB_DEVICE(0x3837, 0x100b) },
+    // L7 Ultra, dongle
+    { HID_USB_DEVICE(0x5253, 0x1020) },
     {},
 };
 MODULE_DEVICE_TABLE(hid, mbat_devices);
@@ -427,6 +521,7 @@ static struct hid_driver mbat_driver = {
 
 module_hid_driver(mbat_driver);
 
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("TODO");
+MODULE_LICENSE("GPL v2");
+MODULE_AUTHOR("bdfd9");
 MODULE_DESCRIPTION("MCHOSE battery driver");
+MODULE_VERSION("1.0.0");
