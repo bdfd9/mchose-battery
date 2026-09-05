@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/hid.h>
