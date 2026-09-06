@@ -313,14 +313,14 @@ static int mbat_query_battery(mouse_battery_data_t* const data) {
         // 2. Sleeping
         // - {'command': 249, 'vid': 51144, 'pid': 49126, 'fwVersion': 4227716090, 'connectMode': 6, 'connectStatus': 0, 'inReserved': 15, 'batteryLevel': 207, 'chargeStatus': 255}
         //
-        // Therefore, do not update anything and set the power state to 'unknown'.
+        // Therefore, do not update anything and set the power state to 'discharging'.
         hid_info(
             data->hdev, //
             "[%s]: the mouse is either powered off or in sleep mode...\n",
             data->hdev->name
         );
 
-        data->ps_status = POWER_SUPPLY_STATUS_UNKNOWN;
+        data->ps_status = POWER_SUPPLY_STATUS_DISCHARGING;
     }
 
     spin_unlock_irqrestore(&data->lock, lock_flags);
@@ -548,4 +548,4 @@ module_hid_driver(mbat_driver);
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("bdfd9");
 MODULE_DESCRIPTION("MCHOSE battery driver");
-MODULE_VERSION("1.0.4");
+MODULE_VERSION("1.0.5");
