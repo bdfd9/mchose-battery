@@ -541,4 +541,4 @@ module_hid_driver(mbat_driver);
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("bdfd9");
 MODULE_DESCRIPTION("MCHOSE battery driver");
-MODULE_VERSION("1.0.0");
+MODULE_VERSION("1.0.2");
