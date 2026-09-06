@@ -523,6 +523,8 @@ static const struct hid_device_id mbat_devices[] = {
     { HID_USB_DEVICE(0x3837, 0x4019) },
     // L7 Ultra, dongle
     { HID_USB_DEVICE(0x5253, 0x1020) },
+    // L7 Ultra, wired USB
+    { HID_USB_DEVICE(0x5253, 0x00b1) },
     {},
 };
 MODULE_DEVICE_TABLE(hid, mbat_devices);
