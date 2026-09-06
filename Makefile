@@ -26,7 +26,7 @@ clean:
 install: all
 	install -Dm 644 $(MODULE_KO) $(DESTDIR)$(MODULE_DEST)/mchose_battery.ko
 	install -Dm 644 $(UDEV_RULE) $(DESTDIR)$(UDEV_RULES_DIR)/50-mchose-battery.rules
-	depmod -a $(KERNEL_REL)
+	depmod -a $(KERNEL_VER)
 	-udevadm control --reload-rules 2>/dev/null
 	@echo ""
 	@echo "Module installed. To load, run as a root:"
@@ -35,7 +35,7 @@ install: all
 uninstall:
 	rm -f $(DESTDIR)$(MODULE_DEST)/mchose_battery.ko
 	rm -f $(DESTDIR)$(UDEV_RULES_DIR)/50-mchose-battery.rules
-	depmod -a $(KERNEL_REL) 2>/dev/null || true
+	depmod -a $(KERNEL_VER) 2>/dev/null || true
 	-udevadm control --reload-rules 2>/dev/null
 	@echo ""
 	@echo "module uninstalled"
