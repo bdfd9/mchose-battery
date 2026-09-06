@@ -217,7 +217,7 @@ static int mbat_query_battery(mouse_battery_data_t* const data) {
         buffer[i] ^= 0xff;
     }
 
-    unsigned char* const payload = buffer + 2;
+    unsigned char* const payload = buffer + 1;
 
     size_t offset = 0;
     uint16_t vid;
@@ -226,6 +226,9 @@ static int mbat_query_battery(mouse_battery_data_t* const data) {
     uint8_t flags;
     uint8_t battery_level;
     uint8_t charge_status;
+
+    const uint8_t command = *payload;
+    offset += 1;
 
     memcpy(&vid, payload + offset, sizeof(vid));
     offset += 2;
@@ -258,9 +261,11 @@ static int mbat_query_battery(mouse_battery_data_t* const data) {
     const uint8_t wired_connection = 0;
 
     if ( //
-        ((connect_mode == wireless_24g_connection) || (connect_mode == wired_connection))
-        && ((vid != 0) && (vid != 0xffff)) //
-        && (charge_status != 0xff)         //
+        (command == 6)
+        && ((connect_mode == wireless_24g_connection)
+            || (connect_mode == wired_connection)) //
+        && ((vid != 0) && (vid != 0xffff))         //
+        && (charge_status != 0xff)                 //
         && (battery_level <= 100)
     ) {
         // The mouse is connected.
@@ -543,4 +548,4 @@ module_hid_driver(mbat_driver);
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("bdfd9");
 MODULE_DESCRIPTION("MCHOSE battery driver");
-MODULE_VERSION("1.0.3");
+MODULE_VERSION("1.0.4");
