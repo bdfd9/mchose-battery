@@ -259,6 +259,8 @@ static int mbat_query_battery(mouse_battery_data_t* const data) {
 
     if ( //
         ((connect_mode == wireless_24g_connection) || (connect_mode == wired_connection))
+        && ((vid != 0) && (vid != 0xffff)) //
+        && (charge_status != 0xff)         //
         && (battery_level <= 100)
     ) {
         // The mouse is connected.
@@ -280,7 +282,7 @@ static int mbat_query_battery(mouse_battery_data_t* const data) {
 
         data->ps_status = ps_status;
         data->battery_level = battery_level;
-        data->is_charging = charge_status;
+        data->is_charging = charge_status == 1;
     } else {
         if (battery_level > 100) {
             hid_warn(
@@ -541,4 +543,4 @@ module_hid_driver(mbat_driver);
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("bdfd9");
 MODULE_DESCRIPTION("MCHOSE battery driver");
-MODULE_VERSION("1.0.2");
+MODULE_VERSION("1.0.3");
