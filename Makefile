@@ -2,8 +2,8 @@
 obj-m += mchose_battery.o
 
 PWD := $(CURDIR)
-KDIR ?= /lib/modules/$(shell uname -r)/build
-KERNEL_VER ?= $(shell uname -r)
+KDIR ?= /lib/modules/$(shell rpm -q "kernel" --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}')/build
+KERNEL_VER ?= $(shell rpm -q "kernel" --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}')
 MODULE_DEST ?= /lib/modules/$(KERNEL_VER)/kernel/drivers/hid
 
 UDEV_RULES_DIR ?= /etc/udev/rules.d
