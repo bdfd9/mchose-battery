@@ -15,7 +15,7 @@
 #define DRIVER_NAME "mchose-battery"
 
 /// How often to poll the device
-#define POLL_INTERVAL_MS (30 * 1000)
+#define POLL_INTERVAL_MS (60 * 1000)
 /// 2s seem to be always working
 #define RESPONSE_TIMEOUT_MS 2000
 
@@ -32,7 +32,7 @@ typedef struct mouse_battery_data {
 
     struct power_supply* battery;
     struct power_supply_desc battery_desc;
-    char battery_name[255];
+    char battery_name[128];
 
     struct delayed_work poll_work;
 
@@ -135,10 +135,6 @@ static int mbat_ps_get_property(
             val->strval = "MCHOSE";
             break;
         }
-        case POWER_SUPPLY_PROP_SERIAL_NUMBER: {
-            val->strval = data->hdev->uniq;
-            break;
-        }
         default:
             ret = -EINVAL;
             break;
@@ -155,7 +151,6 @@ static enum power_supply_property mbat_ps_props[] = {
     POWER_SUPPLY_PROP_SCOPE,          //
     POWER_SUPPLY_PROP_MODEL_NAME,     //
     POWER_SUPPLY_PROP_MANUFACTURER,   //
-    POWER_SUPPLY_PROP_SERIAL_NUMBER,  //
 };
 
 /*******************************************************************************/
@@ -251,16 +246,26 @@ static int mbat_query_battery(mouse_battery_data_t* const data) {
     offset += 1;
 
     // #NOTE: These are correct and have been left as documentation.
-    // const uint8_t connect_mode = flags & 0x7;
+    const uint8_t connect_mode = flags & 0x7;
     // const uint8_t in_reserved = (flags >> 4) & 0xf;
-    const uint8_t connect_status = (flags >> 3) & 0x1;
+    // const uint8_t connect_status = (flags >> 3) & 0x1;
 
     unsigned long lock_flags;
     spin_lock_irqsave(&data->lock, lock_flags);
 
-    if (connect_status == 1 && (battery_level <= 100)) {
+    // #TODO: bluetooth?
+    const uint8_t wireless_24g_connection = 1;
+    const uint8_t wired_connection = 0;
+
+    if ( //
+        ((connect_mode == wireless_24g_connection) || (connect_mode == wired_connection))
+        && (battery_level <= 100)
+    ) {
         // The mouse is connected.
+        // - wireless:
         // {'command': 6, 'vid': 14391, 'pid': 16409, 'fwVersion': 67251205, 'connectMode': 1, 'connectStatus': 1, 'inReserved': 0, 'batteryLevel': 47, 'chargeStatus': 0}
+        // - wired:
+        // {'command': 6, 'vid': 14391, 'pid': 16409, 'fwVersion': 67251205, 'connectMode': 0, 'connectStatus': 0, 'inReserved': 0, 'batteryLevel': 58, 'chargeStatus': 1}
         int ps_status = POWER_SUPPLY_STATUS_UNKNOWN;
         if (battery_level == 100) {
             // If the battery is fully charged (i.e. 100%),
@@ -382,6 +387,7 @@ static int mbat_register_power_supply(
         .properties = mbat_ps_props,
         .num_properties = ARRAY_SIZE(mbat_ps_props),
         .get_property = mbat_ps_get_property,
+        .no_thermal = true,
     };
 
     data->battery = devm_power_supply_register(&hdev->dev, &data->battery_desc, &psy_cfg);
@@ -416,14 +422,16 @@ static int mbat_probe_battery(struct hid_device* const hdev) {
         goto err_close;
     }
 
-    // #NOTE: mchose hardcoded serial numbers to 0123456789, so it won't be fully unique...
+    // #NOTE: mchose hard-coded the serial numbers to '0123456789' for the transceiver
+    // and '0123456789A' for the USB connection, meaning they won't be fully unique.
+    // So, it is not very useful to add the serial number to the battery name,
+    // as this will result in the USB and wireless connections being treated as two separate batteries.
     memset(data->battery_name, 0x0, sizeof(data->battery_name));
     snprintf(
         data->battery_name, //
         sizeof(data->battery_name),
-        "%s-%s",
-        hdev->name,
-        hdev->uniq
+        "%s",
+        hdev->name
     );
     sanitize_name(data->battery_name);
 
@@ -511,6 +519,8 @@ static void mbat_remove(struct hid_device* const hdev) {
 static const struct hid_device_id mbat_devices[] = {
     // A7 V2 Ultra, dongle
     { HID_USB_DEVICE(0x3837, 0x100b) },
+    // A7 V2 Ultra, wired USB
+    { HID_USB_DEVICE(0x3837, 0x4019) },
     // L7 Ultra, dongle
     { HID_USB_DEVICE(0x5253, 0x1020) },
     {},
